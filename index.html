@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;700&family=Poppins:wght@400;500;700&family=Roboto:wght@400;500;700&family=Nunito:wght@400;700&family=Raleway:wght@400;500;700&family=Lato:wght@400;700&family=Montserrat:wght@400;500;700&family=Open+Sans:wght@400;700&family=Playfair+Display:wght@400;700&family=Source+Code+Pro:wght@400&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet" /></noscript>
+    <!-- Always start in light mode, clear any stale dark preference -->
+    <script>
+      document.documentElement.classList.remove('dark');
+      try {
+        var c = document.cookie.match(/(^| )ss_ui_prefs=([^;]+)/);
+        if (c) {
+          var p = JSON.parse(decodeURIComponent(c[2]));
+          if (p && p.darkMode === true) {
+            p.darkMode = false;
+            document.cookie = 'ss_ui_prefs=' + encodeURIComponent(JSON.stringify(p)) + ';path=/;SameSite=Lax';
+          }
+        }
+      } catch(e) {}
+    </script>
+    <!-- TODO: Set the document title to the name of your application -->
+    <title>Systems Solutions | Leading IT Solutions Company in Maldives</title>
+    <meta name="description" content="Transform your business with cutting-edge technology. Custom software, ERP systems, web & mobile apps, IT consulting in Maldives." />
+    <meta name="author" content="Systems Solutions Pvt Ltd" />
+    <meta property="og:title" content="Systems Solutions — Leading IT Solutions in Maldives" />
+    <meta property="og:description" content="Custom software development, ERP systems, web & mobile apps, IT consulting, and digital marketing." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@Lovable" />
+    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
