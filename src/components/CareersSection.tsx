@@ -76,7 +76,8 @@ const CareersSection = () => {
   const scrollTo = () => document.querySelector("#contact")?.scrollIntoView({ behavior: "smooth" });
   const [showModal, setShowModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState<CareerJob | null>(null);
-  const [applyForm, setApplyForm] = useState({ name: "", email: "", phone: "", cover: "", interview_date: "", website: "" });
+  const [applyForm, setApplyForm] = useState({ name: "", email: "", phone: "", cover: "", website: "" });
+
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -104,8 +105,12 @@ const CareersSection = () => {
     setShowModal(true);
   };
   const submitApplication = async () => {
-    if (!applyForm.name.trim() || !applyForm.email.trim()) {
-      toast.error("Name and email are required.");
+    if (!applyForm.name.trim()) {
+      toast.error("Full Name is required.");
+      return;
+    }
+    if (!applyForm.email.trim()) {
+      toast.error("Email Address is required.");
       return;
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -132,7 +137,8 @@ const CareersSection = () => {
       const appData = json.data;
       if (json.error) throw new Error(json.error.message);
 
-      if (appData && applyForm.interview_date) {
+      // Automatically create an appointment for today so it shows up on the admin calendar
+      if (appData) {
         await fetch("/api/db/appointments", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -140,11 +146,11 @@ const CareersSection = () => {
             id: crypto.randomUUID(),
             reference_type: "application",
             reference_id: appData.id,
-            name: applyForm.name,
-            email: applyForm.email,
-            title: `Interview: ${selectedJob?.title || "Job Application"}`,
+            name: applyForm.name.trim(),
+            email: applyForm.email.trim(),
+            title: `Job App: ${selectedJob?.title || "General"}`,
             description: applyForm.cover?.slice(0, 100) || "Candidate applied for this position.",
-            appointment_date: applyForm.interview_date,
+            appointment_date: new Date().toISOString(),
             created_at: new Date().toISOString()
           })
         });
@@ -152,7 +158,7 @@ const CareersSection = () => {
 
       toast.success("Application submitted successfully!");
       setShowModal(false);
-      setApplyForm({ name: "", email: "", phone: "", cover: "", interview_date: "", website: "" });
+      setApplyForm({ name: "", email: "", phone: "", cover: "", website: "" });
     } catch (err: any) {
       toast.error(err.message || "Failed to submit application.");
     } finally {
@@ -235,11 +241,6 @@ const CareersSection = () => {
               <div>
                 <label className="text-xs font-medium text-muted-foreground">Job ID / Title</label>
                 <input className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm" value={selectedJob?.title || ""} readOnly />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground">Preferred Interview Date *</label>
-                <input type="datetime-local" className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm" 
-                  value={applyForm.interview_date} onChange={(e) => setApplyForm(f => ({ ...f, interview_date: e.target.value }))} />
               </div>
             </div>
             <div>

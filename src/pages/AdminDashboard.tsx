@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/localClient";
 import { toast } from "sonner";
 import {
-  LayoutDashboard, MessageSquare, FileText, Shield, Globe, LogOut, Eye, EyeOff, Trash2, ChevronLeft, Menu, X, PanelLeftClose, PanelLeft, Settings, RefreshCw, Mail, Activity, Send, PhoneCall, Save, Bot, Sun, Moon, Star,
+  LayoutDashboard, MessageSquare, FileText, Shield, Globe, LogOut, Eye, EyeOff, Trash2, ChevronLeft, Menu, X, PanelLeftClose, PanelLeft, Settings, RefreshCw, Mail, Activity, Send, PhoneCall, Save, Bot, Sun, Moon, Star, Plus,
   ChevronRight, Calendar as CalendarIcon, Clock, User, Briefcase, LayoutGrid, List, Search, ChevronDown, Image, Type, BotMessageSquare
 } from "lucide-react";
 import { openViber, ViberIcon } from "@/lib/viber";
@@ -14,6 +14,20 @@ import PageEditor from "@/components/admin/PageEditor";
 import { useUndoAction } from "@/hooks/useUndoAction";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import { applySettings } from "@/hooks/useSiteSettings";
+
+const formatDate = (value: string | Date): string => {
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "—";
+  const day = String(d.getDate()).padStart(2, "0");
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const mon = months[d.getMonth()];
+  const year = d.getFullYear();
+  let hours = d.getHours();
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  const tt = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12 || 12;
+  return `${day}-${mon}-${year} ${String(hours).padStart(2, "0")}:${minutes} ${tt}`;
+};
 
 function useDarkMode() {
   const [isDark, setIsDark] = useState(() => {
@@ -68,7 +82,7 @@ const AVAILABLE_FONTS: { label: string; value: string }[] = [
 
 interface SiteSettings {
   site_name: string; site_logo: string; whatsapp_number: string; viber_number: string;
-  contact_email: string; contact_from_email: string; hr_email: string;
+  contact_email: string; contact_from_email: string;
   smtp_host: string; smtp_port: string; smtp_user: string; smtp_pass: string;
   ai_model: string; demo_url: string; db_connection: string;
   social_linkedin: string; social_twitter: string; social_facebook: string; social_instagram: string;
@@ -80,9 +94,161 @@ interface SiteSettings {
   hr_email: string;
 }
 
-const AppointmentsCalendar = ({ appointments }: { appointments: any[] }) => {
+const AppointmentsCalendar = ({
+  appointments,
+  submissions = [],
+  applications = [],
+  onAppointmentUpdated,
+  onAppointmentCreated,
+}: {
+  appointments: any[];
+  submissions?: any[];
+  applications?: any[];
+  onAppointmentUpdated?: (updated: any) => void;
+  onAppointmentCreated?: (created: any) => void;
+}) => {
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedAppt, setSelectedAppt] = useState<any | null>(null);
+  const [appointmentMeta, setAppointmentMeta] = useState<any | null>(null);
+  const [appointmentNotes, setAppointmentNotes] = useState("");
+  const [apptMetaLoading, setApptMetaLoading] = useState(false);
+  const [apptSaving, setApptSaving] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [modalPosition, setModalPosition] = useState({ x: 0, y: 0 });
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [newAppointment, setNewAppointment] = useState({
+    reference_type: "manual",
+    reference_id: "",
+    name: "",
+    email: "",
+    title: "",
+    description: "",
+    notes: "",
+    appointment_date: "",
+  });
+
+  const toLocalDatetime = (date: Date) => {
+    const pad = (value: number) => value.toString().padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
+  const openCreateModalForDate = (day: number) => {
+    const targetDate = new Date(year, month, day, 9, 0);
+    setNewAppointment((prev) => ({ ...prev, appointment_date: toLocalDatetime(targetDate) }));
+    setShowCreateModal(true);
+    setModalPosition({ x: 0, y: 0 });
+  };
+
+  const handlePopupPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    setDragStart({ x: e.clientX, y: e.clientY });
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handlePopupPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragStart) return;
+    setModalPosition((prev) => ({
+      x: prev.x + (e.clientX - dragStart.x),
+      y: prev.y + (e.clientY - dragStart.y),
+    }));
+    setDragStart({ x: e.clientX, y: e.clientY });
+  };
+
+  const handlePopupPointerUp = () => {
+    setDragStart(null);
+  };
+
+  const resetNewAppointment = () => {
+    setNewAppointment({
+      reference_type: "manual",
+      reference_id: "",
+      name: "",
+      email: "",
+      title: "",
+      description: "",
+      notes: "",
+      appointment_date: "",
+    });
+  };
+
+  useEffect(() => {
+    if (!showCreateModal) resetNewAppointment();
+  }, [showCreateModal]);
+
+  useEffect(() => {
+    if (!newAppointment.reference_id) return;
+    if (newAppointment.reference_type === "contact") {
+      const selected = submissions.find((item: any) => item.id === newAppointment.reference_id);
+      if (selected) {
+        setNewAppointment((prev) => ({
+          ...prev,
+          name: selected.full_name || selected.name || prev.name,
+          email: selected.email || prev.email,
+        }));
+      }
+    }
+    if (newAppointment.reference_type === "application") {
+      const selected = applications.find((item: any) => item.id === newAppointment.reference_id);
+      if (selected) {
+        setNewAppointment((prev) => ({
+          ...prev,
+          name: selected.applicant_name || prev.name,
+          email: selected.email || prev.email,
+        }));
+      }
+    }
+  }, [newAppointment.reference_id, newAppointment.reference_type, submissions, applications]);
+
+  const normalizeAppointmentDate = (value: string) => {
+    if (!value || !value.trim()) return "";
+    const candidate = value.trim();
+    const parsed = new Date(candidate);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return parsed.toISOString();
+  };
+
+  const createAppointment = async () => {
+    const trimmedName = newAppointment.name.trim();
+    const trimmedEmail = newAppointment.email.trim();
+    const trimmedTitle = newAppointment.title.trim();
+    const trimmedDate = newAppointment.appointment_date.trim();
+    const appointmentDate = normalizeAppointmentDate(trimmedDate);
+
+    if (!trimmedName || !trimmedEmail || !trimmedTitle || !appointmentDate) {
+      toast.error("Name, email, title and appointment date are required.");
+      return;
+    }
+
+    setCreateLoading(true);
+    try {
+      const url = new URL(`/api/db/appointments`, window.location.origin);
+      const resp = await fetch(url.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reference_type: newAppointment.reference_type,
+          reference_id: newAppointment.reference_id || "",
+          name: trimmedName,
+          email: trimmedEmail,
+          title: trimmedTitle,
+          description: newAppointment.description.trim(),
+          notes: newAppointment.notes.trim() || null,
+          appointment_date: appointmentDate,
+          created_at: new Date().toISOString(),
+        }),
+      });
+      const json = await resp.json();
+      if (!json?.data) throw new Error(json?.error?.message || "Failed to create appointment.");
+      onAppointmentCreated?.(json.data);
+      setShowCreateModal(false);
+      toast.success("Appointment created successfully.");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to create appointment.");
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
   const firstDay = new Date(year, month, 1).getDay();
@@ -92,98 +258,441 @@ const AppointmentsCalendar = ({ appointments }: { appointments: any[] }) => {
   const days = [];
   for (let i = 0; i < firstDay; i++) days.push(null);
   for (let i = 1; i <= daysInMonth; i++) days.push(i);
+
   const getDayAppts = (day: number) => {
-    return appointments.filter(a => {
-      const d = new Date(a.appointment_date);
-      return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day;
-    });
+    return appointments
+      .filter((a) => {
+        if (!a?.appointment_date) return false;
+        const d = new Date(a.appointment_date);
+        return !Number.isNaN(d.getTime()) && d.getFullYear() === year && d.getMonth() === month && d.getDate() === day;
+      })
+      .sort((a, b) => new Date(a.appointment_date).getTime() - new Date(b.appointment_date).getTime());
   };
+
+  const loadAppointmentReference = async (appt: any) => {
+    setApptMetaLoading(true);
+    setAppointmentMeta(null);
+    try {
+      if (!appt) return;
+      if (appt.reference_type === "contact") {
+        const refId = String(appt.reference_id || "");
+        const url = new URL(`/api/db/contact_submissions`, window.location.origin);
+        url.searchParams.set("id", refId);
+        url.searchParams.set("_single", "1");
+        const resp = await fetch(url.toString());
+        const json = await resp.json();
+        if (json?.data) {
+          setAppointmentMeta(json.data);
+        } else if (refId.endsWith("_2")) {
+          const fallbackId = refId.slice(0, -2);
+          const fallbackUrl = new URL(`/api/db/contact_submissions`, window.location.origin);
+          fallbackUrl.searchParams.set("id", fallbackId);
+          fallbackUrl.searchParams.set("_single", "1");
+          const fallbackResp = await fetch(fallbackUrl.toString());
+          const fallbackJson = await fallbackResp.json();
+          setAppointmentMeta(fallbackJson?.data || null);
+        }
+      }
+      if (appt.reference_type === "application") {
+        const url = new URL(`/api/db/job_applications`, window.location.origin);
+        url.searchParams.set("id", String(appt.reference_id));
+        url.searchParams.set("_single", "1");
+        const resp = await fetch(url.toString());
+        const json = await resp.json();
+        setAppointmentMeta(json?.data || null);
+      }
+    } catch (e) {
+      setAppointmentMeta(null);
+    }
+    setApptMetaLoading(false);
+  };
+
+  useEffect(() => {
+    if (!selectedAppt) {
+      setAppointmentMeta(null);
+      setAppointmentNotes("");
+      return;
+    }
+    setAppointmentNotes(selectedAppt.notes || "");
+    loadAppointmentReference(selectedAppt);
+  }, [selectedAppt]);
+
+  const closeModal = () => setSelectedAppt(null);
+
+  const saveAppointmentNotes = async () => {
+    if (!selectedAppt) return;
+    const trimmedNotes = appointmentNotes.trim();
+    setApptSaving(true);
+    try {
+      if (trimmedNotes.length === 0) {
+        throw new Error("Enter notes before saving or use delete to remove existing notes.");
+      }
+      const url = new URL(`/api/db/appointments`, window.location.origin);
+      url.searchParams.set("id", selectedAppt.id);
+      const resp = await fetch(url.toString(), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: trimmedNotes }),
+      });
+      const json = await resp.json();
+      if (!json?.data) throw new Error(json?.error?.message || "Save failed.");
+      setSelectedAppt(json.data);
+      onAppointmentUpdated?.(json.data);
+      toast.success("Appointment notes saved.");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to save appointment notes.");
+    }
+    setApptSaving(false);
+  };
+
+  const deleteAppointmentNote = async () => {
+    if (!selectedAppt) return;
+    setApptSaving(true);
+    try {
+      const url = new URL(`/api/db/appointments`, window.location.origin);
+      url.searchParams.set("id", selectedAppt.id);
+      const resp = await fetch(url.toString(), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: null }),
+      });
+      const json = await resp.json();
+      if (!json?.data) throw new Error(json?.error?.message || "Delete failed.");
+      setSelectedAppt(json.data);
+      setAppointmentNotes("");
+      onAppointmentUpdated?.(json.data);
+      toast.success("Appointment note deleted.");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to delete note.");
+    }
+    setApptSaving(false);
+  };
+
+  const hasExistingNote = Boolean(selectedAppt?.notes?.trim());
+  const trimmedNotes = appointmentNotes.trim();
+  const canSaveNotes = trimmedNotes.length > 0;
+  const appointmentStatus = appointmentMeta?.status || appointmentMeta?.is_read !== undefined ? (appointmentMeta.is_read ? "Responded" : "New") : "Unknown";
   const monthName = currentDate.toLocaleString('default', { month: 'long', year: 'numeric' });
 
   return (
     <div className="glass-card flex flex-col items-center overflow-hidden">
-      <div className="flex justify-between w-full items-center px-6 py-4 border-b border-border/50 bg-muted/20">
-        <button onClick={handlePrev} className="p-2 bg-background border border-border shadow-sm hover:bg-muted text-foreground rounded-lg transition-colors flex items-center justify-center">
-          <ChevronLeft size={18} />
-        </button>
-        <h2 className="text-xl font-heading font-black text-foreground flex items-center gap-2">
-          <CalendarIcon size={20} className="text-secondary" /> {monthName}
-        </h2>
-        <button onClick={handleNext} className="p-2 bg-background border border-border shadow-sm hover:bg-muted text-foreground rounded-lg transition-colors flex items-center justify-center">
-          <ChevronRight size={18} />
-        </button>
+      <div className="flex flex-col gap-3 sm:flex-row justify-between w-full items-center px-6 py-4 border-b border-border/50 bg-muted/20">
+        <div className="flex items-center gap-3 flex-wrap">
+          <button onClick={handlePrev} className="p-2 bg-background border border-border shadow-sm hover:bg-muted text-foreground rounded-lg transition-colors flex items-center justify-center">
+            <ChevronLeft size={18} />
+          </button>
+          <h2 className="text-xl font-heading font-black text-foreground flex items-center gap-2">
+            <CalendarIcon size={20} className="text-secondary" /> {monthName}
+          </h2>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => setShowCreateModal(true)} className="inline-flex items-center gap-2 rounded-2xl border border-border/80 bg-secondary/10 px-4 py-2 text-sm font-semibold text-secondary transition hover:bg-secondary/15">
+            <Plus size={16} /> New Appointment
+          </button>
+          <button onClick={handleNext} className="p-2 bg-background border border-border shadow-sm hover:bg-muted text-foreground rounded-lg transition-colors flex items-center justify-center">
+            <ChevronRight size={18} />
+          </button>
+        </div>
       </div>
-      <div className="w-full p-6 bg-background">
-        <div className="grid grid-cols-7 gap-1 sm:gap-2 lg:gap-3 rounded-xl">
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-            <div key={d} className="bg-muted p-2 rounded-lg text-center text-[0.625rem] sm:text-[0.6875rem] font-black uppercase text-muted-foreground tracking-widest border border-border/30 shadow-sm">
-              {d}
-            </div>
-          ))}
-          {days.map((day, idx) => {
-            if (!day) return <div key={`empty-${idx}`} className="bg-transparent min-h-[80px] sm:min-h-[100px]" />;
-            const dayAppts = getDayAppts(day);
-            const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
-            return (
-              <div key={`day-${day}`} className={`bg-muted/10 border ${isToday ? 'border-secondary/50 ring-1 ring-inset ring-secondary/20 bg-secondary/5' : 'border-border/50'} min-h-[80px] sm:min-h-[110px] rounded-xl p-1.5 sm:p-2 transition-colors hover:bg-muted/30 relative shadow-sm`}>
-                <div className="flex justify-start">
-                  <span className={`text-xs font-bold leading-none ${isToday ? 'text-secondary bg-secondary/20 px-1.5 py-1 rounded-md' : 'text-muted-foreground'}`}>{day}</span>
-                </div>
-                <div className="mt-1.5 flex flex-col gap-1 w-full max-h-[70px] sm:max-h-[90px] overflow-y-auto custom-scrollbar">
-                  {dayAppts.map((a, i) => (
-                    <button key={i} onClick={() => setSelectedAppt(a)}
-                      className={`text-left text-[0.5625rem] sm:text-[0.625rem] leading-tight px-1.5 py-1.5 ${a.reference_type === 'contact' ? 'bg-blue-500/10 text-blue-600 border border-blue-500/20 shadow-sm' : 'bg-green-500/10 text-green-600 border border-green-500/20 shadow-sm'} rounded-md hover:scale-[1.02] active:scale-95 transition-all truncate font-medium`}>
-                      {new Date(a.appointment_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      <div className="font-bold opacity-80 mt-0.5 truncate">{a.name.split(' ')[0]}</div>
-                    </button>
-                  ))}
-                </div>
+      <div className="w-full p-6 bg-background grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-4">
+          <div className="grid grid-cols-7 gap-1 sm:gap-2 lg:gap-3 rounded-xl">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+              <div key={d} className="bg-muted p-2 rounded-lg text-center text-[0.625rem] sm:text-[0.6875rem] font-black uppercase text-muted-foreground tracking-widest border border-border/30 shadow-sm">
+                {d}
               </div>
-            );
-          })}
+            ))}
+            {days.map((day, idx) => {
+              if (!day) return <div key={`empty-${idx}`} className="bg-transparent min-h-[80px] sm:min-h-[100px]" />;
+              const dayAppts = getDayAppts(day);
+              const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
+              return (
+                <div key={`day-${day}`} onClick={() => openCreateModalForDate(day)} className={`bg-muted/10 border ${isToday ? 'border-secondary/50 ring-1 ring-inset ring-secondary/20 bg-secondary/5' : 'border-border/50'} min-h-[80px] sm:min-h-[110px] rounded-xl p-1.5 sm:p-2 transition-colors hover:bg-muted/30 relative shadow-sm cursor-pointer`}>
+                  <div className="flex justify-start">
+                    <span className={`text-xs font-bold leading-none ${isToday ? 'text-secondary bg-secondary/20 px-1.5 py-1 rounded-md' : 'text-muted-foreground'}`}>{day}</span>
+                  </div>
+                  <div className="mt-1.5 flex flex-col gap-1 w-full max-h-[70px] sm:max-h-[90px] overflow-y-auto custom-scrollbar">
+                    {dayAppts.map((a) => (
+                      <button type="button" key={a.id || `${day}-${a.title}-${a.email}`} onClick={(e) => { e.stopPropagation(); setSelectedAppt(a); }}
+                        className={`text-left text-[0.5625rem] sm:text-[0.625rem] leading-tight px-1.5 py-1.5 ${a.reference_type === 'contact' ? 'bg-blue-500/10 text-blue-600 border border-blue-500/20 shadow-sm' : 'bg-green-500/10 text-green-600 border border-green-500/20 shadow-sm'} rounded-md hover:scale-[1.02] active:scale-95 transition-all truncate font-medium`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span>{new Date(a.appointment_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          <span className="text-[0.625rem] font-semibold uppercase tracking-widest">{a.reference_type === 'contact' ? 'Contact' : 'Job'}</span>
+                        </div>
+                        <div className="font-bold opacity-80 mt-0.5 truncate">{a.name.split(' ')[0]}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Sidebar for Unscheduled items */}
+        <div className="lg:col-span-1 space-y-4">
+          <div className="bg-muted/30 p-4 rounded-2xl border border-border/50 h-full">
+            <h3 className="text-xs font-bold text-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Activity size={14} className="text-secondary" /> Recent Submissions
+            </h3>
+            <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-1">
+              {[...submissions, ...applications]
+                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                .slice(0, 10)
+                .map((s) => {
+                  const isScheduled = appointments.some(a => a.reference_id === s.id || (a.reference_id && a.reference_id.startsWith(s.id)));
+                  const isApp = 'applicant_name' in s;
+                  return (
+                    <div key={s.id} className={`p-3 rounded-xl border transition-all ${isScheduled ? 'bg-background/50 border-border/30 opacity-60' : 'bg-background border-secondary/20 shadow-sm hover:border-secondary/40'}`}>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className={`text-[0.625rem] font-bold uppercase px-1.5 py-0.5 rounded ${isApp ? 'bg-green-500/10 text-green-600' : 'bg-blue-500/10 text-blue-600'}`}>
+                          {isApp ? 'Job' : 'Inquiry'}
+                        </span>
+                        {!isScheduled && <span className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" />}
+                      </div>
+                      <div className="text-xs font-bold text-foreground truncate">{isApp ? s.applicant_name : (s.full_name || s.name || s.email)}</div>
+                      <div className="text-[0.625rem] text-muted-foreground mt-1 flex items-center justify-between">
+                        <span>{formatDate(s.created_at)}</span>
+                        {!isScheduled && (
+                          <button onClick={() => {
+                            setNewAppointment({
+                              reference_type: isApp ? "application" : "contact",
+                              reference_id: s.id,
+                              name: isApp ? s.applicant_name : (s.full_name || s.name),
+                              email: s.email,
+                              title: isApp ? `Interview: ${s.job_id || "General"}` : "Follow-up",
+                              description: "",
+                              notes: "",
+                              appointment_date: toLocalDatetime(new Date()),
+                            });
+                            setShowCreateModal(true);
+                          }} className="text-secondary hover:underline font-bold">Schedule</button>
+                        )}
+                        {isScheduled && <span className="text-muted-foreground italic">Scheduled</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              {submissions.length === 0 && applications.length === 0 && (
+                <p className="text-[0.6875rem] text-muted-foreground text-center py-8 italic">No recent activity</p>
+              )}
+            </div>
+          </div>
         </div>
       </div>
       {selectedAppt && (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setSelectedAppt(null)}>
-          <div className="bg-background border border-border rounded-2xl shadow-2xl p-6 sm:p-8 max-w-sm w-full space-y-5 animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-start">
-              <div className="space-y-1">
-                <div className={`text-[0.625rem] uppercase font-black tracking-widest px-2 py-1 flex items-center gap-1.5 rounded-full inline-flex ${selectedAppt.reference_type === 'contact' ? 'bg-blue-500/10 text-blue-600' : 'bg-green-500/10 text-green-600'}`}>
-                  {selectedAppt.reference_type === 'application' ? <Briefcase size={12} /> : <User size={12} />}
-                  {selectedAppt.reference_type} Interaction
+        <div className="fixed inset-0 z-50 p-4" onClick={closeModal} onPointerMove={handlePopupPointerMove} onPointerUp={handlePopupPointerUp}>
+          <div className="absolute w-full max-w-md bg-card border border-border rounded-2xl shadow-xl overflow-hidden animate-in duration-150" style={{ top: '50%', left: '50%', transform: `translate(calc(-50% + ${modalPosition.x}px), calc(-50% + ${modalPosition.y}px))` }} onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <div className="flex flex-col gap-1 cursor-grab" onPointerDown={handlePopupPointerDown}>
+                <div className="flex items-center gap-2">
+                  <span className={`inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${selectedAppt.reference_type === 'application' ? 'bg-green-500/10 text-green-600' : 'bg-blue-500/10 text-blue-600'
+                    }`}>
+                    {selectedAppt.reference_type === 'application' ? <Briefcase size={10} /> : <User size={10} />}
+                    {selectedAppt.reference_type === 'application' ? 'Job' : 'Contact'}
+                  </span>
+                  <h3 className="text-sm font-semibold text-foreground truncate max-w-[200px]">{selectedAppt.title || selectedAppt.name || 'Appointment'}</h3>
                 </div>
+                <p className="text-[0.65rem] text-muted-foreground">{formatDate(selectedAppt.appointment_date)}</p>
               </div>
-              <button onClick={() => setSelectedAppt(null)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors"><X size={18} /></button>
+              <button onClick={closeModal} onPointerDown={(e) => e.stopPropagation()} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors"><X size={16} /></button>
             </div>
-            <div className="space-y-4 bg-muted/30 p-4 rounded-xl border border-border/50">
-              <div className="flex items-start gap-3">
-                <CalendarIcon size={16} className="text-secondary shrink-0 mt-0.5" />
+
+            {/* Scrollable body */}
+            <div className="overflow-y-auto max-h-[70vh] divide-y divide-border">
+              {/* Core details */}
+              <div className="px-4 py-3 grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
                 <div>
-                  <div className="text-[0.625rem] text-muted-foreground font-bold uppercase tracking-wider mb-0.5">Scheduled Date</div>
-                  <div className="text-sm font-semibold text-foreground">{new Date(selectedAppt.appointment_date).toLocaleString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div>
+                  <p className="text-muted-foreground font-medium mb-0.5">Name</p>
+                  <p className="text-foreground font-semibold">{selectedAppt.name || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground font-medium mb-0.5">Email</p>
+                  <a href={`mailto:${selectedAppt.email}`} className="text-secondary hover:underline font-semibold truncate block">{selectedAppt.email || '—'}</a>
+                </div>
+                <div>
+                  <p className="text-muted-foreground font-medium mb-0.5">Date</p>
+                  <p className="text-foreground font-semibold">{formatDate(selectedAppt.appointment_date)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground font-medium mb-0.5">Time</p>
+                  <p className="text-foreground font-semibold">{formatDate(selectedAppt.appointment_date)}</p>
+                </div>
+                {selectedAppt.description && (
+                  <div className="col-span-2">
+                    <p className="text-muted-foreground font-medium mb-0.5">Description</p>
+                    <p className="text-foreground leading-relaxed">{selectedAppt.description}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Associated submission */}
+              <div className="px-4 py-3">
+                <p className="text-[0.625rem] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+                  {selectedAppt.reference_type === 'application' ? 'Application Info' : 'Contact Submission'}
+                </p>
+                {apptMetaLoading ? (
+                  <p className="text-xs text-muted-foreground">Loading...</p>
+                ) : appointmentMeta ? (
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                    {selectedAppt.reference_type === 'contact' ? (
+                      <>
+                        <div><span className="text-muted-foreground">Name: </span><span className="text-foreground font-medium">{appointmentMeta.full_name || appointmentMeta.name || '—'}</span></div>
+                        <div><span className="text-muted-foreground">Phone: </span><span className="text-foreground font-medium">{appointmentMeta.phone || '—'}</span></div>
+                        <div><span className="text-muted-foreground">Company: </span><span className="text-foreground font-medium">{appointmentMeta.company_name || '—'}</span></div>
+                        {appointmentMeta.message && (
+                          <div className="col-span-2">
+                            <p className="text-muted-foreground mb-1">Message:</p>
+                            <p className="bg-muted/50 rounded-lg px-3 py-2 text-foreground leading-relaxed line-clamp-3">{appointmentMeta.message}</p>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div><span className="text-muted-foreground">Applicant: </span><span className="text-foreground font-medium">{appointmentMeta.applicant_name || '—'}</span></div>
+                        <div><span className="text-muted-foreground">Phone: </span><span className="text-foreground font-medium">{appointmentMeta.phone || '—'}</span></div>
+                        <div><span className="text-muted-foreground">Job: </span><span className="text-foreground font-medium">{appointmentMeta.job_id || '—'}</span></div>
+                        {appointmentMeta.cover_letter && (
+                          <div className="col-span-2">
+                            <p className="text-muted-foreground mb-1">Cover Letter:</p>
+                            <p className="bg-muted/50 rounded-lg px-3 py-2 text-foreground leading-relaxed line-clamp-3">{appointmentMeta.cover_letter}</p>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No linked submission found.</p>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div className="px-4 py-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[0.625rem] font-bold uppercase tracking-widest text-muted-foreground">Notes</p>
+                  {hasExistingNote && (
+                    <button type="button" onClick={deleteAppointmentNote} disabled={apptSaving}
+                      className="text-[0.625rem] text-destructive hover:underline disabled:opacity-50">
+                      Delete
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  value={appointmentNotes}
+                  onChange={(e) => setAppointmentNotes(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground outline-none resize-none focus:ring-2 focus:ring-ring transition"
+                  placeholder="Add a note for this appointment..."
+                />
+              </div>
+            </div>
+
+            {/* Footer actions */}
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border bg-muted/20">
+              <button type="button" onClick={closeModal}
+                className="px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-foreground hover:bg-muted transition-colors">
+                Close
+              </button>
+              <button type="button" onClick={saveAppointmentNotes} disabled={!canSaveNotes || apptSaving}
+                className="px-3 py-1.5 rounded-lg bg-secondary text-secondary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity">
+                {apptSaving ? 'Saving…' : 'Save Note'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 p-4  " onClick={() => setShowCreateModal(false)} onPointerMove={handlePopupPointerMove} onPointerUp={handlePopupPointerUp}>
+          <div className="absolute w-full max-w-md bg-card border border-border rounded-2xl shadow-xl overflow-hidden animate-in duration-150" style={{ top: '50%', left: '50%', transform: `translate(calc(-50% + ${modalPosition.x}px), calc(-50% + ${modalPosition.y}px))` }} onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <div className="flex flex-col gap-1 cursor-grab" onPointerDown={handlePopupPointerDown}>
+                <h3 className="text-sm font-semibold text-foreground">New Appointment</h3>
+                {newAppointment.appointment_date && (
+                  <p className="text-[0.65rem] text-muted-foreground">{formatDate(newAppointment.appointment_date)}</p>
+                )}
+              </div>
+              <button onClick={() => setShowCreateModal(false)} onPointerDown={(e) => e.stopPropagation()} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors"><X size={16} /></button>
+            </div>
+
+            {/* Form body */}
+            <div className="overflow-y-auto max-h-[70vh] px-4 py-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[0.625rem] font-bold uppercase tracking-widest text-muted-foreground">Name *</label>
+                  <input value={newAppointment.name} onChange={(e) => setNewAppointment((p) => ({ ...p, name: e.target.value }))}
+                    placeholder="Client name"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[0.625rem] font-bold uppercase tracking-widest text-muted-foreground">Email *</label>
+                  <input type="email" value={newAppointment.email} onChange={(e) => setNewAppointment((p) => ({ ...p, email: e.target.value }))}
+                    placeholder="client@example.com"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring" />
                 </div>
               </div>
-              <div className="flex items-start gap-3">
-                <Clock size={16} className="text-secondary shrink-0 mt-0.5" />
-                <div>
-                  <div className="text-[0.625rem] text-muted-foreground font-bold uppercase tracking-wider mb-0.5">Time</div>
-                  <div className="text-sm font-semibold text-foreground">{new Date(selectedAppt.appointment_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[0.625rem] font-bold uppercase tracking-widest text-muted-foreground">Date & Time *</label>
+                  <input type="datetime-local" value={newAppointment.appointment_date} onChange={(e) => setNewAppointment((p) => ({ ...p, appointment_date: e.target.value }))}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[0.625rem] font-bold uppercase tracking-widest text-muted-foreground">Reference</label>
+                  <select value={newAppointment.reference_type} onChange={(e) => setNewAppointment((p) => ({ ...p, reference_type: e.target.value, reference_id: "" }))}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring">
+                    <option value="manual">Manual</option>
+                    <option value="contact">Contact</option>
+                    <option value="application">Job Application</option>
+                  </select>
                 </div>
               </div>
-              <div className="flex items-start gap-3">
-                <Mail size={16} className="text-secondary shrink-0 mt-0.5" />
-                <div>
-                  <div className="text-[0.625rem] text-muted-foreground font-bold uppercase tracking-wider mb-0.5">Contact Email</div>
-                  <a href={`mailto:${selectedAppt.email}`} className="text-sm font-semibold text-secondary hover:underline break-all">{selectedAppt.email}</a>
-                </div>
-              </div>
-              {selectedAppt.description && (
-                <div className="p-3 bg-card border border-border rounded-lg text-xs text-muted-foreground italic leading-relaxed">
-                  "{selectedAppt.description}"
+              {newAppointment.reference_type !== "manual" && (
+                <div className="space-y-1">
+                  <label className="text-[0.625rem] font-bold uppercase tracking-widest text-muted-foreground">Link to {newAppointment.reference_type === "contact" ? "Contact" : "Application"}</label>
+                  <select value={newAppointment.reference_id} onChange={(e) => setNewAppointment((p) => ({ ...p, reference_id: e.target.value }))}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring">
+                    <option value="">Choose one</option>
+                    {newAppointment.reference_type === "contact" ? submissions.map((item: any) => (
+                      <option key={item.id} value={item.id}>{item.full_name || item.name || item.email}</option>
+                    )) : applications.map((item: any) => (
+                      <option key={item.id} value={item.id}>{item.applicant_name || item.email}</option>
+                    ))}
+                  </select>
                 </div>
               )}
+              <div className="space-y-1">
+                <label className="text-[0.625rem] font-bold uppercase tracking-widest text-muted-foreground">Title *</label>
+                <input value={newAppointment.title} onChange={(e) => setNewAppointment((p) => ({ ...p, title: e.target.value }))}
+                  placeholder="Meeting purpose"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[0.625rem] font-bold uppercase tracking-widest text-muted-foreground">Description</label>
+                <textarea value={newAppointment.description} onChange={(e) => setNewAppointment((p) => ({ ...p, description: e.target.value }))}
+                  rows={2} placeholder="Brief description"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none resize-none focus:ring-2 focus:ring-ring" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[0.625rem] font-bold uppercase tracking-widest text-muted-foreground">Notes (optional)</label>
+                <textarea value={newAppointment.notes} onChange={(e) => setNewAppointment((p) => ({ ...p, notes: e.target.value }))}
+                  rows={2} placeholder="Internal notes"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground outline-none resize-none focus:ring-2 focus:ring-ring" />
+              </div>
             </div>
-            <button onClick={() => setSelectedAppt(null)} className="w-full py-2.5 bg-secondary text-secondary-foreground rounded-xl font-bold hover:opacity-90 transition-opacity">Close Overview</button>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border bg-muted/20">
+              <button type="button" onClick={() => setShowCreateModal(false)}
+                className="px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-foreground hover:bg-muted transition-colors">
+                Cancel
+              </button>
+              <button type="button" onClick={createAppointment} disabled={createLoading}
+                className="px-3 py-1.5 rounded-lg bg-secondary text-secondary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity">
+                {createLoading ? 'Creating…' : 'Create'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -213,9 +722,10 @@ const AdminDashboard = () => {
   const [chatLoading, setChatLoading] = useState(false);
   const [replyTexts, setReplyTexts] = useState<Record<string, string>>({});
   const [replyingSub, setReplyingSub] = useState<string | null>(null);
+  const [replyingApp, setReplyingApp] = useState<string | null>(null);
   const [collapsedCards, setCollapsedCards] = useState<Record<string, boolean>>({});
   const [subReplies, setSubReplies] = useState<Record<string, any[]>>({});
-  const [appReplies, setAppReplies] = useState<Record<string, any[]>>();
+  const [appReplies, setAppReplies] = useState<Record<string, any[]>>({});
   // Inbox filters & pagination
   const [subSearch, setSubSearch] = useState("");
   const [subStatusFilter, setSubStatusFilter] = useState("all");
@@ -285,19 +795,13 @@ const AdminDashboard = () => {
   const applyUX = (prefs: any) => {
     applySettings(prefs);
   };
+
   const esRef = useRef<EventSource | null>(null);
 
   const startSSE = () => {
     if (esRef.current) return; // already connected
     const es = new EventSource("/api/events");
     esRef.current = es;
-    es.addEventListener("submission", (evt) => {
-      const data = JSON.parse((evt as MessageEvent).data);
-      setSubmissions((prev) => {
-        if (prev.some(s => s.id === data.id)) return prev;
-        return [data, ...prev];
-      });
-    });
     es.addEventListener("chat", (evt) => {
       const data = JSON.parse((evt as MessageEvent).data);
       setChatHistory((prev) => {
@@ -305,11 +809,25 @@ const AdminDashboard = () => {
         return [data, ...prev].slice(0, 200);
       });
     });
+    es.addEventListener("submission", (evt) => {
+      const data = JSON.parse((evt as MessageEvent).data);
+      setSubmissions((prev) => {
+        if (prev.some(s => s.id === data.id)) return prev;
+        return [data, ...prev];
+      });
+    });
     es.addEventListener("application", (evt) => {
       const data = JSON.parse((evt as MessageEvent).data);
       setApplications((prev) => {
         if (prev.some(a => a.id === data.id)) return prev;
         return [data, ...prev];
+      });
+    });
+    es.addEventListener("appointment", (evt) => {
+      const data = JSON.parse((evt as MessageEvent).data);
+      setAppointments((prev) => {
+        if (prev.some(a => a.id === data.id)) return prev;
+        return [...prev, data].sort((a, b) => new Date(a.appointment_date).getTime() - new Date(b.appointment_date).getTime());
       });
     });
   };
@@ -376,13 +894,13 @@ const AdminDashboard = () => {
     if (data?.content) {
       const c = data.content as any;
       setSiteSettings((prev) => ({ ...prev, ...c }));
-      
+
       // 1. Get User Overrides from LocalStorage first
       let localPrefs: any = {};
       try {
         const stored = localStorage.getItem("bss-user-settings");
         if (stored) localPrefs = JSON.parse(stored);
-      } catch {}
+      } catch { }
 
       // 2. Sync UX draft prioritizing Local Overrides > DB Settings
       setUxDraft({
@@ -458,13 +976,29 @@ const AdminDashboard = () => {
 
 
   const updateApplicationStatus = async (id: string, status: string, message?: string) => {
-    await fetch(`/api/applications/${id}/reply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status, message }),
-    });
-    await loadApplications();
-    await loadAppointments();
+    if (message) setReplyingApp(id);
+    try {
+      const resp = await fetch(`/api/applications/${id}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, message }),
+      });
+      if (resp.ok) {
+        if (message) {
+          toast.success("Reply sent!");
+          await loadAppReplies(id);
+        } else {
+          toast.success("Application updated!");
+          await loadApplications(); // Force refresh the main list
+        }
+      } else {
+        toast.error("Failed to update application.");
+      }
+    } catch {
+      toast.error("Network error updating application.");
+    } finally {
+      if (message) setReplyingApp(null);
+    }
   };
 
   const loadSubmissionReplies = async (id: string) => {
@@ -484,12 +1018,18 @@ const AdminDashboard = () => {
   };
 
   const toggleCardCollapse = (id: string, type: "sub" | "app") => {
-    const isNowOpen = collapsedCards[id];
+    const isOpening = !collapsedCards[id];
     setCollapsedCards(p => ({ ...p, [id]: !p[id] }));
-    if (isNowOpen === undefined) {
-      // First expand — load replies
-      if (type === "sub") loadSubmissionReplies(id);
-      else loadAppReplies(id);
+
+    if (isOpening) {
+      // Reload replies whenever expanding to keep data fresh
+      if (type === "sub") {
+        loadSubmissionReplies(id);
+      } else {
+        // Strip app- prefix for loading data
+        const rawId = id.startsWith("app-") ? id.replace("app-", "") : id;
+        loadAppReplies(rawId);
+      }
     }
   };
 
@@ -731,7 +1271,7 @@ const AdminDashboard = () => {
                               <span className="font-semibold text-foreground text-sm">{s.full_name}</span>
                               <span className="text-muted-foreground text-xs ml-2">{s.email}</span>
                             </div>
-                            <span className="text-xs text-muted-foreground">{new Date(s.created_at).toLocaleDateString()}</span>
+                            <span className="text-xs text-muted-foreground">{formatDate(s.created_at)}</span>
                           </div>
                           <p className="text-muted-foreground text-sm mt-1 line-clamp-2">{s.message}</p>
                         </div>
@@ -786,9 +1326,7 @@ const AdminDashboard = () => {
                             className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm outline-none focus:ring-2 focus:ring-ring"
                           />
                         </div>
-                        <div className="text-sm text-muted-foreground">
-                          Showing {displayedSubmissions.length} of {filteredSubmissions.length} submissions
-                        </div>
+
                       </div>
                       {displayedSubmissions.map((s) => {
                         const isExpanded = collapsedCards[s.id] === true;
@@ -807,7 +1345,7 @@ const AdminDashboard = () => {
                                 </div>
                               </div>
                               <div className="flex items-center gap-2 shrink-0 ml-2" onClick={e => e.stopPropagation()}>
-                                <span className="text-xs text-muted-foreground hidden sm:block">{new Date(s.created_at).toLocaleDateString()}</span>
+                                <span className="text-xs text-muted-foreground hidden sm:block">{formatDate(s.created_at)}</span>
                                 <button onClick={() => toggleRead(s.id, s.is_read)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground" title={s.is_read ? "Mark unread" : "Mark read"}>
                                   {s.is_read ? <EyeOff size={14} /> : <Eye size={14} />}
                                 </button>
@@ -825,7 +1363,7 @@ const AdminDashboard = () => {
                                   <div className="max-w-[85%] bg-muted/50 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-foreground border border-border/40">
                                     <div className="text-[0.625rem] text-muted-foreground font-bold uppercase mb-1">{s.full_name || s.email}</div>
                                     {s.message}
-                                    <div className="text-[0.625rem] text-muted-foreground mt-1.5 opacity-60">{new Date(s.created_at).toLocaleString()}</div>
+                                    <div className="text-[0.625rem] text-muted-foreground mt-1.5 opacity-60">{formatDate(s.created_at)}</div>
                                   </div>
                                 </div>
 
@@ -838,7 +1376,7 @@ const AdminDashboard = () => {
                                       }`}>
                                       <div className="text-[0.625rem] font-bold uppercase opacity-70 mb-1">{r.sender === "admin" ? "You (Admin)" : r.sender}</div>
                                       {r.message}
-                                      <div className="text-[0.625rem] opacity-50 mt-1.5">{new Date(r.created_at).toLocaleString()}</div>
+                                      <div className="text-[0.625rem] opacity-50 mt-1.5">{formatDate(r.created_at)}</div>
                                     </div>
                                   </div>
                                 ))}
@@ -911,9 +1449,7 @@ const AdminDashboard = () => {
                                   className="w-full px-3 py-2 rounded-xl bg-background border border-border text-sm outline-none focus:ring-2 focus:ring-ring"
                                 />
                               </div>
-                              <div className="text-sm text-muted-foreground">
-                                Showing {displayedApplications.length} of {filteredApplications.length} applications
-                              </div>
+
                             </div>
                             {displayedApplications.map((app) => {
                               const isExpanded = collapsedCards[`app-${app.id}`] === true;
@@ -953,7 +1489,7 @@ const AdminDashboard = () => {
                                           <div className="max-w-[85%] bg-muted/50 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-foreground border border-border/40">
                                             <div className="text-[0.625rem] text-muted-foreground font-bold uppercase mb-1">{app.applicant_name}</div>
                                             {app.cover_letter}
-                                            <div className="text-[0.625rem] text-muted-foreground mt-1.5 opacity-60">{new Date(app.created_at).toLocaleString()}</div>
+                                            <div className="text-[0.625rem] text-muted-foreground mt-1.5 opacity-60">{formatDate(app.created_at)}</div>
                                           </div>
                                         </div>
                                       )}
@@ -965,7 +1501,7 @@ const AdminDashboard = () => {
                                             }`}>
                                             <div className="text-[0.625rem] font-bold uppercase opacity-70 mb-1">{r.sender === "admin" ? "You (Admin)" : r.sender}</div>
                                             {r.message}
-                                            <div className="text-[0.625rem] opacity-50 mt-1.5">{new Date(r.created_at).toLocaleString()}</div>
+                                            <div className="text-[0.625rem] opacity-50 mt-1.5">{formatDate(r.created_at)}</div>
                                           </div>
                                         </div>
                                       ))}
@@ -975,13 +1511,23 @@ const AdminDashboard = () => {
                                             className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-sm focus:ring-2 focus:ring-ring outline-none"
                                             value={replyTexts[app.id] || ""}
                                             onChange={(e) => setReplyTexts(p => ({ ...p, [app.id]: e.target.value }))}
-                                            onKeyDown={(e) => { if (e.key === "Enter" && replyTexts[app.id]?.trim()) { e.preventDefault(); updateApplicationStatus(app.id, app.status, replyTexts[app.id]); setReplyTexts(p => ({ ...p, [app.id]: "" })); } }}
+                                            disabled={replyingApp === app.id}
+                                            onKeyDown={(e) => {
+                                              if (e.key === "Enter" && replyTexts[app.id]?.trim() && replyingApp !== app.id) {
+                                                e.preventDefault();
+                                                updateApplicationStatus(app.id, app.status, replyTexts[app.id]);
+                                                setReplyTexts(p => ({ ...p, [app.id]: "" }));
+                                              }
+                                            }}
                                           />
                                           <button
-                                            onClick={() => { updateApplicationStatus(app.id, app.status, replyTexts[app.id]); setReplyTexts(p => ({ ...p, [app.id]: "" })); }}
-                                            disabled={!replyTexts[app.id]?.trim()}
+                                            onClick={() => {
+                                              updateApplicationStatus(app.id, app.status, replyTexts[app.id]);
+                                              setReplyTexts(p => ({ ...p, [app.id]: "" }));
+                                            }}
+                                            disabled={replyingApp === app.id || !replyTexts[app.id]?.trim()}
                                             className="px-4 py-2 bg-secondary text-secondary-foreground rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5 shrink-0">
-                                            <Send size={14} /> Send
+                                            <Send size={14} /> {replyingApp === app.id ? "Sending..." : "Send"}
                                           </button>
                                         </div>
                                       </div>
@@ -1438,7 +1984,7 @@ const AdminDashboard = () => {
                                     <span className="text-[0.5625rem] px-1.5 py-0.5 rounded-sm bg-secondary/10 text-secondary uppercase font-black tracking-widest">{msgs.length} msgs</span>
                                   </div>
                                   <div className="text-[0.6875rem] sm:text-xs text-muted-foreground mt-0.5 truncate flex items-center gap-1.5 font-mono">
-                                    <span>{lastDate.toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</span>
+                                    <span>{formatDate(lastDate)}</span>
                                     <span className="text-border/50">-</span>
                                     <span className="text-foreground/80 font-semibold">{session.ip}</span>
                                     <span className="text-border/50">-</span>
@@ -1479,7 +2025,7 @@ const AdminDashboard = () => {
                                             }`}>
                                             <div className="whitespace-pre-wrap leading-relaxed">{m.content}</div>
                                             <div className={`text-[0.5625rem] mt-2 font-mono flex items-center justify-between ${isOut ? "text-secondary-foreground/60" : "text-muted-foreground"}`}>
-                                              <span>{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              <span>{formatDate(m.timestamp)}</span>
                                             </div>
                                           </div>
                                         </div>
@@ -1487,29 +2033,16 @@ const AdminDashboard = () => {
                                     );
                                   })}
                                 </div>
-                                
+
                                 {/* Admin Reply Input */}
                                 <div className="p-4 border-t border-border/50 bg-background/50">
-                                   <div className="flex gap-2">
-                                      <input 
-                                        placeholder="Type an admin reply..."
-                                        value={replyTexts[session.sid] || ""}
-                                        onChange={(e) => setReplyTexts(p => ({ ...p, [session.sid]: e.target.value }))}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter" && replyTexts[session.sid]?.trim()) {
-                                            const msg = replyTexts[session.sid];
-                                            setReplyTexts(p => ({ ...p, [session.sid]: "" }));
-                                            fetch("/api/chat/send", {
-                                              method: "POST",
-                                              headers: { "Content-Type": "application/json" },
-                                              body: JSON.stringify({ message: msg, session_id: session.sid, from: "admin" })
-                                            }).then(() => loadChatHistory());
-                                          }
-                                        }}
-                                        className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-xs outline-none"
-                                      />
-                                      <button 
-                                        onClick={() => {
+                                  <div className="flex gap-2">
+                                    <input
+                                      placeholder="Type an admin reply..."
+                                      value={replyTexts[session.sid] || ""}
+                                      onChange={(e) => setReplyTexts(p => ({ ...p, [session.sid]: e.target.value }))}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter" && replyTexts[session.sid]?.trim()) {
                                           const msg = replyTexts[session.sid];
                                           setReplyTexts(p => ({ ...p, [session.sid]: "" }));
                                           fetch("/api/chat/send", {
@@ -1517,13 +2050,26 @@ const AdminDashboard = () => {
                                             headers: { "Content-Type": "application/json" },
                                             body: JSON.stringify({ message: msg, session_id: session.sid, from: "admin" })
                                           }).then(() => loadChatHistory());
-                                        }}
-                                        disabled={!replyTexts[session.sid]?.trim()}
-                                        className="px-4 py-2 bg-secondary text-secondary-foreground rounded-xl text-xs font-bold disabled:opacity-50"
-                                      >
-                                        Send
-                                      </button>
-                                   </div>
+                                        }
+                                      }}
+                                      className="flex-1 px-3 py-2 rounded-xl bg-background border border-border text-xs outline-none"
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        const msg = replyTexts[session.sid];
+                                        setReplyTexts(p => ({ ...p, [session.sid]: "" }));
+                                        fetch("/api/chat/send", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ message: msg, session_id: session.sid, from: "admin" })
+                                        }).then(() => loadChatHistory());
+                                      }}
+                                      disabled={!replyTexts[session.sid]?.trim()}
+                                      className="px-4 py-2 bg-secondary text-secondary-foreground rounded-xl text-xs font-bold disabled:opacity-50"
+                                    >
+                                      Send
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             )}
@@ -1549,7 +2095,13 @@ const AdminDashboard = () => {
                   </div>
                   {apptsLoading ? <div className="text-muted-foreground">Loading...</div> : (
                     <div className="animate-in fade-in duration-500">
-                      <AppointmentsCalendar appointments={appointments} />
+                      <AppointmentsCalendar
+                        appointments={appointments}
+                        submissions={submissions}
+                        applications={applications}
+                        onAppointmentUpdated={(updated) => setAppointments((prev) => prev.map((appt) => appt.id === updated.id ? updated : appt))}
+                        onAppointmentCreated={(created) => setAppointments((prev) => [...prev, created].sort((a, b) => new Date(a.appointment_date).getTime() - new Date(b.appointment_date).getTime()))}
+                      />
                     </div>
                   )}
                 </div>

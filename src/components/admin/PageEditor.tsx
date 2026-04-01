@@ -257,7 +257,7 @@ const MapPicker = ({ lat, lng, onPick }: { lat: number, lng: number, onPick: (la
 
 const PageEditor = () => {
   const [activeTab, setActiveTab] = useState("hero");
-  const [siteContent, setSiteContent] = useState<Record<string, Record<string, string>>>({});
+  const [siteContent, setSiteContent] = useState<Record<string, Record<string, string>>>(DEFAULT_CONTENT);
   const [services, setServices] = useState<Service[]>([]);
   const [clients, setClients] = useState<ClientLogo[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
@@ -886,8 +886,8 @@ const PageEditor = () => {
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
+              <div className="space-y-4 pt-2">
+                <div className="flex items-center justify-between px-1">
                   <span className="text-sm font-bold text-foreground">Feedback Items ({testimonials.length})</span>
                   <button onClick={addTestimonial} className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary text-secondary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-all shadow-sm">
                     <Plus size={14} /> Add New Review
@@ -921,7 +921,7 @@ const PageEditor = () => {
                           <img src={t.avatar_url || ""} alt={t.name} className="w-12 h-12 rounded-full bg-background border border-border/50 shrink-0 object-cover shadow-sm" />
                           <div className="flex-1 min-w-0">
                             <div className="font-bold text-sm text-foreground">{t.name} <span className="text-muted-foreground font-normal ml-1">@ {t.company}</span></div>
-                            <div className="text-xs text-muted-foreground truncate italic">"{t.message?.replace(/<[^>]*>/g, "")}"</div>
+                            <div className="text-xs text-muted-foreground italic">"{t.message?.replace(/<[^>]*>/g, "")}"</div>
                             <div className="flex gap-0.5 mt-1">
                               {[...Array(t.rating || 5)].map((_, i) => <Star key={i} size={10} className="fill-yellow-500 text-yellow-500" />)}
                             </div>

@@ -180,6 +180,7 @@ db.exec(`
     email TEXT NOT NULL,
     title TEXT,
     description TEXT,
+    notes TEXT,
     appointment_date TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
@@ -203,6 +204,8 @@ try {
   const appCols = db.prepare("PRAGMA table_info(job_applications)").all().map(c => c.name);
   if (!appCols.includes("website")) db.exec("ALTER TABLE job_applications ADD COLUMN website TEXT;");
   if (!appCols.includes("status")) db.exec("ALTER TABLE job_applications ADD COLUMN status TEXT NOT NULL DEFAULT 'new';");
+  const apptCols = db.prepare("PRAGMA table_info(appointments)").all().map(c => c.name);
+  if (!apptCols.includes("notes")) db.exec("ALTER TABLE appointments ADD COLUMN notes TEXT;");
 
   // Cleanup Duplicate Client Logos
   const logos = db.prepare("SELECT name, COUNT(*) as c FROM client_logos GROUP BY name HAVING c > 1").all();

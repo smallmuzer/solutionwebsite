@@ -30,14 +30,19 @@ function DateTimePicker({ label, value, onChange, minDate }: {
 
   const selectDay = (d: number) => {
     const dt = new Date(view.y, view.m, d, time.h, time.min);
-    onChange(dt.toISOString().slice(0,16).replace("T","T"));
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    const localStr = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+    onChange(localStr);
   };
 
   const applyTime = (h: number, min: number) => {
     setTime({ h, min });
     if (parsed) {
-      const dt = new Date(parsed); dt.setHours(h, min);
-      onChange(dt.toISOString().slice(0,16));
+      const dt = new Date(parsed);
+      dt.setHours(h, min);
+      const pad = (n: number) => n.toString().padStart(2, "0");
+      const localStr = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+      onChange(localStr);
     }
   };
 
@@ -130,6 +135,17 @@ const ContactSection = () => {
   const nowDate  = new Date();
   const nowLocal = toLocalISO(nowDate);
 
+  const normalizeAppointmentDate = (value: string) => {
+    if (!value || !value.trim()) return "";
+    const candidate = value.trim();
+    const parsed = new Date(candidate);
+    if (Number.isNaN(parsed.getTime())) return "";
+    // If the input doesn't have a timezone indicator, it's already in local time from our picker.
+    // We want to keep it as a local-looking string for the DB or convert to ISO correctly.
+    // For consistency with AdminDashboard, we convert to full ISO with Z.
+    return parsed.toISOString();
+  };
+
   const [form, setForm] = useState({ name: "", company: "", email: "", phone: "", service: "", message: "", date1: "", date2: "", website: "" });
 
   useEffect(() => {
@@ -174,25 +190,30 @@ const ContactSection = () => {
         const contactId = contactData.id;
         const apptTitle = form.service ? `Inquiry: ${form.service}` : "General Inquiry";
         const apptDesc  = form.message.slice(0, 100) + (form.message.length > 100 ? "..." : "");
+        const date1 = normalizeAppointmentDate(form.date1);
+        const date2 = normalizeAppointmentDate(form.date2);
 
-        if (form.date1 && form.date1.trim() !== "") {
-          await fetch("/api/db/appointments", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              id: crypto.randomUUID(),
-              reference_type: "contact",
-              reference_id: contactId,
-              name: form.name,
-              email: form.email,
-              title: apptTitle + " (Choice 1)",
-              description: apptDesc,
-              appointment_date: form.date1,
-              created_at: new Date().toISOString()
-            })
-          });
-        }
-        if (form.date2 && form.date2.trim() !== "") {
+        // Always create an entry for the calendar on the day of submission if no dates are picked
+        // OR if Date 1 is picked, use that.
+        const effectiveDate1 = date1 || new Date().toISOString();
+        
+        await fetch("/api/db/appointments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: crypto.randomUUID(),
+            reference_type: "contact",
+            reference_id: contactId,
+            name: form.name.trim(),
+            email: form.email.trim(),
+            title: apptTitle + (date1 ? " (Choice 1)" : ""),
+            description: apptDesc,
+            appointment_date: effectiveDate1,
+            created_at: new Date().toISOString()
+          })
+        });
+
+        if (date2) {
           await fetch("/api/db/appointments", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -200,11 +221,11 @@ const ContactSection = () => {
               id: crypto.randomUUID(),
               reference_type: "contact",
               reference_id: contactId + "_2",
-              name: form.name,
-              email: form.email,
+              name: form.name.trim(),
+              email: form.email.trim(),
               title: apptTitle + " (Choice 2)",
               description: apptDesc,
-              appointment_date: form.date2,
+              appointment_date: date2,
               created_at: new Date().toISOString()
             })
           });
@@ -315,7 +336,7 @@ const ContactSection = () => {
                 <h3 className="font-heading font-bold text-[1.125rem] text-foreground mb-2">Thank You!</h3>
                 <p className="text-muted-foreground text-[0.875rem]">We've received your message and will get back to you within 24 hours.</p>
                 <button
-                  onClick={() => { setSubmitted(false); setForm({ name: "", company: "", email: "", phone: "", service: "", message: "", date1: "", date2: "" }); }}
+                  onClick={() => { setSubmitted(false); setForm({ name: "", company: "", email: "", phone: "", service: "", message: "", date1: "", date2: "", website: "" }); }}
                   className="mt-6 text-secondary font-medium text-[0.8125rem] hover:underline"
                 >
                   Send Another Message

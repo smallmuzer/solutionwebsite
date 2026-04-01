@@ -22,7 +22,7 @@ const CookieConsent      = lazy(() => import("@/components/CookieConsent"));
 const GuidedTour         = lazy(() => import("@/components/GuidedTour"));
 
 // Minimal fallback — invisible placeholder keeps layout stable
-const Blank = () => <div style={{ minHeight: 80 }} />;
+const Blank = () => <div style={{ minHeight: 20 }} />;
 
 const Index = () => {
   useSiteSettings();

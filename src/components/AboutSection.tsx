@@ -11,6 +11,27 @@ const cardData = [
   { title: "Global Reach",  key: "card_global",  imgKey: "card_global_image",  fallback: "/assets/about/global.png",  accent: "from-emerald-600/65 to-teal-900/80", Icon: Globe  },
 ];
 
+// Floating animation styles injected once
+const floatStyles = `
+  @keyframes aboutFloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+  }
+  .about-float {
+    animation: aboutFloat 5s ease-in-out infinite;
+  }
+`;
+
+if (typeof document !== 'undefined') {
+  const existingStyle = document.getElementById('about-float-style');
+  if (!existingStyle) {
+    const styleSheet = document.createElement("style");
+    styleSheet.id = 'about-float-style';
+    styleSheet.innerText = floatStyles;
+    document.head.appendChild(styleSheet);
+  }
+}
+
 const AboutSection = () => {
   const content   = useSiteContent("about");
   const cardStyle = useCardStyle();
@@ -26,7 +47,7 @@ const AboutSection = () => {
   return (
     <section id="about" className="section-padding relative overflow-hidden">
       <div className="container-wide relative z-10">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-20 items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
           {/* Left: text — live from DB */}
           <div>
             <AnimatedSection>
@@ -56,15 +77,19 @@ const AboutSection = () => {
           {/* Right: cards — images fully live from DB */}
           <AnimatedSection delay={0.2}>
             {view === "grid" ? (
-              <div className="grid grid-cols-2 gap-3">
-                {cardData.map((card) => {
+              <div className="grid grid-cols-2 gap-2">
+                {cardData.map((card, idx) => {
                   const { Icon } = card;
                   const imgSrc = resolveImg(card.imgKey, card.fallback);
                   return (
                     <div
                       key={card.title}
-                      className="glass-card relative rounded-xl overflow-hidden group cursor-default"
-                      style={{ height: "clamp(120px, 18vw, 155px)" }}
+                      className="glass-card relative rounded-xl overflow-hidden group cursor-default about-float"
+                      style={{ 
+                        height: "clamp(120px, 18vw, 155px)",
+                        animationDelay: `${idx * 0.6}s`,
+                        animationDuration: `${4 + idx * 0.5}s`,
+                      }}
                     >
                       {useImg && (
                         <img

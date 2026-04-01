@@ -97,7 +97,7 @@ const ServicesSection = () => {
         </AnimatedSection>
 
         {view === "grid" ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {services.map((service, i) => {
               const theme = getTheme(service);
               const Icon  = getIcon(service);

@@ -161,7 +161,7 @@ const WorldMap = () => {
                         </span>
                       </div>
                       <button 
-                        className={`shrink-0 p-2 rounded-full transition-colors ${isActive ? "bg-secondary text-secondary-foreground" : "bg-muted text-muted-foreground group-hover:bg-secondary/20 group-hover:text-secondary"}`}
+                        className={`shrink-0 p-2 rounded-full transition-all duration-300 shadow-sm ${isActive ? "bg-secondary text-white scale-110" : "bg-secondary/70 text-white hover:bg-secondary hover:scale-110"}`}
                         title="View on map"
                         onClick={(e) => { e.stopPropagation(); handleLocationClick(loc); }}
                       >

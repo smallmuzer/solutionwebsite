@@ -26,10 +26,10 @@ class RealtimeChannel {
     return this;
   }
   subscribe() { return this; }
-  unsubscribe() { 
+  unsubscribe() {
     const cbs = _channels.get(this._key);
     if (cbs) _channels.set(this._key, []); // Clear local listeners
-    return this; 
+    return this;
   }
 }
 
@@ -46,8 +46,8 @@ class QueryBuilder {
   private _orderAsc = true;
   private _writeData: any = null;
   private _wantSingle = false;
-  private _wantMaybe  = false;
-  private _returnRow  = false;
+  private _wantMaybe = false;
+  private _returnRow = false;
 
   constructor(table: string) { this._table = table; }
 
@@ -56,13 +56,13 @@ class QueryBuilder {
     else this._op = "select";
     return this;
   }
-  eq(col: string, val: any)                        { this._filters.push({ col, val }); return this; }
+  eq(col: string, val: any) { this._filters.push({ col, val }); return this; }
   order(col: string, opts?: { ascending?: boolean }) { this._orderCol = col; this._orderAsc = opts?.ascending !== false; return this; }
-  insert(data: any)  { this._op = "insert"; this._writeData = Array.isArray(data) ? data[0] : data; return this; }
-  update(data: any)  { this._op = "update"; this._writeData = data; return this; }
-  delete()           { this._op = "delete"; return this; }
-  single()           { this._wantSingle = true; return this._exec(); }
-  maybeSingle()      { this._wantMaybe  = true; return this._exec(); }
+  insert(data: any) { this._op = "insert"; this._writeData = Array.isArray(data) ? data[0] : data; return this; }
+  update(data: any) { this._op = "update"; this._writeData = data; return this; }
+  delete() { this._op = "delete"; return this; }
+  single() { this._wantSingle = true; return this._exec(); }
+  maybeSingle() { this._wantMaybe = true; return this._exec(); }
   then(resolve: (v: QResult<any>) => void, reject?: (e: any) => void) {
     this._exec().then(resolve, reject);
   }
@@ -151,7 +151,7 @@ const auth = {
       const res = await fetch("/api/auth/session", { headers: { Authorization: `Bearer ${s.access_token}` } });
       const json = await res.json();
       if (json.data?.session) return { data: { session: s }, error: null };
-    } catch {}
+    } catch { }
     setSession(null);
     return { data: { session: null }, error: null };
   },
@@ -180,7 +180,7 @@ const auth = {
   },
 
   onAuthStateChange(_cb: any) {
-    return { data: { subscription: { unsubscribe: () => {} } } };
+    return { data: { subscription: { unsubscribe: () => { } } } };
   },
 };
 

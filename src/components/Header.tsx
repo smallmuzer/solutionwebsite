@@ -164,7 +164,7 @@ const Header = () => {
           />
           <div className="flex flex-col leading-none">
             <span
-              className="font-heading font-bold text-[1.0625rem] leading-tight"
+              className="font-heading font-bold text-[1.3rem] leading-tight"
               style={{
                 color: scrolled ? (isDark ? "#f1f5f9" : "#0f172a") : "#ffffff",
                 textShadow: scrolled ? "none" : "0 1px 4px rgba(0,0,0,0.4)",
@@ -172,7 +172,7 @@ const Header = () => {
             >
               Systems
             </span>
-            <span className="font-heading font-bold text-[1.0625rem] leading-tight gradient-text">
+            <span className="font-heading font-bold text-[1.3rem] leading-tight gradient-text">
               Solutions
             </span>
           </div>
@@ -231,6 +231,8 @@ const Header = () => {
             </button>
             <a
               href="/admin/login"
+              target="_blank"
+              rel="noopener noreferrer"
               title="Admin Panel"
               className="p-2.5 rounded-lg bg-secondary/15 border border-secondary/30 text-secondary hover:bg-secondary hover:text-secondary-foreground transition-all"
             >

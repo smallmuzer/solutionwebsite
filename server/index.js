@@ -533,7 +533,7 @@ const TABLE_COLS = {
   chat_messages:       ["id","thread_id","direction","channel","message","to_number","from_number","status","model","error","meta","created_at"],
   submission_replies:  ["id","submission_id","sender","message","created_at"],
   application_replies: ["id","application_id","sender","message","created_at"],
-  appointments:        ["id","reference_type","reference_id","name","email","title","description","appointment_date","created_at"],
+  appointments:        ["id","reference_type","reference_id","name","email","title","description","notes","appointment_date","created_at"],
 };
 
 function filterCols(table, row) {
@@ -709,6 +709,49 @@ app.post("/api/db/:table", (req, res) => {
     }
     if (table === "appointments") {
       emitEvent("appointment", normalised);
+      const settings = getSettings();
+      const siteName = settings.site_name || "Brilliant System Solutions";
+
+      sendEmailNow({
+        to: normalised.email,
+        subject: `Appointment Scheduled | ${siteName}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e5e7eb;border-radius:8px">
+          <h2 style="color:#3b82f6;margin-bottom:8px">Your appointment is confirmed</h2>
+          <p style="color:#374151">Hello ${normalised.name || "there"},</p>
+          <p style="color:#374151">Your appointment has been scheduled successfully. Here are the details:</p>
+          <ul style="color:#374151;font-size:14px;line-height:1.8;padding-left:18px;margin:12px 0">
+            <li><strong>Date & Time:</strong> ${new Date(normalised.appointment_date).toLocaleString()}</li>
+            <li><strong>Title:</strong> ${normalised.title || "Appointment"}</li>
+            <li><strong>Email:</strong> ${normalised.email}</li>
+          </ul>
+          ${normalised.description ? `<p style="color:#374151"><strong>Description:</strong><br>${normalised.description.replace(/\n/g, "<br>")}</p>` : ""}
+          <p style="color:#374151">We will follow up with any updates shortly.</p>
+          <p style="color:#9ca3af;font-size:12px;margin-top:16px">${siteName} Team</p>
+        </div>`,
+        text: `Hello ${normalised.name || "there"},\n\nYour appointment has been scheduled successfully.\n\nDate & Time: ${new Date(normalised.appointment_date).toLocaleString()}\nTitle: ${normalised.title || "Appointment"}\nEmail: ${normalised.email}\n\n${normalised.description ? `Description:\n${normalised.description}\n\n` : ""}We will follow up with any updates shortly.\n\n${siteName} Team`,
+        settings,
+      });
+
+      const adminTo = settings.hr_email || settings.contact_email;
+      if (adminTo) {
+        sendEmailNow({
+          to: adminTo,
+          subject: `📅 New Appointment Created | ${siteName}`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e5e7eb;border-radius:8px">
+            <h2 style="color:#3b82f6;margin-bottom:8px">New appointment created</h2>
+            <table style="width:100%;border-collapse:collapse;font-size:14px">
+              <tr><td style="padding:6px 0;color:#6b7280;width:130px">Name</td><td style="padding:6px 0;color:#111827;font-weight:600">${normalised.name}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280">Email</td><td style="padding:6px 0;color:#111827">${normalised.email}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280">Date</td><td style="padding:6px 0;color:#111827">${new Date(normalised.appointment_date).toLocaleString()}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280">Title</td><td style="padding:6px 0;color:#111827">${normalised.title || "Appointment"}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280">Reference</td><td style="padding:6px 0;color:#111827">${normalised.reference_type || "manual"}</td></tr>
+            </table>
+            ${normalised.description ? `<div style="background:#f9fafb;border-left:4px solid #3b82f6;padding:12px 16px;margin:16px 0;border-radius:4px"><p style="margin:0;color:#374151;font-size:14px"><strong>Description:</strong><br>${normalised.description.replace(/\n/g, "<br>")}</p></div>` : ""}
+          </div>`,
+          text: `New appointment created\n\nName: ${normalised.name}\nEmail: ${normalised.email}\nDate: ${new Date(normalised.appointment_date).toLocaleString()}\nTitle: ${normalised.title || "Appointment"}\nReference: ${normalised.reference_type || "manual"}\n\n${normalised.description ? `Description:\n${normalised.description}\n\n` : ""}`,
+          settings,
+        });
+      }
     }
 
     res.json({ data: normalised, error: null });
